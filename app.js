@@ -12,6 +12,7 @@ var baseDir ='http://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_1p00.pl';
 
 // cors config
 var whitelist = [
+	'*',
 	'http://localhost:63342',
 	'http://localhost:3000',
 	'http://localhost:4000',
@@ -20,6 +21,10 @@ var whitelist = [
 
 var corsOptions = {
 	origin: function(origin, callback){
+		if(whitelist.indexOf('*') !== -1) {
+			callback(null, true);
+			return;
+		}
 		var originIsWhitelisted = whitelist.indexOf(origin) !== -1;
 		callback(null, originIsWhitelisted);
 	}
@@ -46,7 +51,7 @@ app.get('/latest', cors(corsOptions), function(req, res){
 	 */
 	function sendLatest(targetMoment){
 
-		var stamp = moment(targetMoment).format('YYYYMMDD') + roundHours(moment(targetMoment).hour(), 6);
+		var stamp = moment(targetMoment).format('YYYYMMDD') + '/' + roundHours(moment(targetMoment).hour(), 6) + '/atmos';
 		var fileName = __dirname +"/json-data/"+ stamp +".json";
 
 		res.setHeader('Content-Type', 'application/json');
@@ -87,7 +92,7 @@ app.get('/nearest', cors(corsOptions), function(req, res, next){
 			}
 		}
 
-		var stamp = moment(targetMoment).format('YYYYMMDD') + roundHours(moment(targetMoment).hour(), 6);
+		var stamp = moment(targetMoment).format('YYYYMMDD') + '/' + roundHours(moment(targetMoment).hour(), 6)+ '/atmos';
 		var fileName = __dirname +"/json-data/"+ stamp +".json";
 
 		res.setHeader('Content-Type', 'application/json');
@@ -145,12 +150,12 @@ function getGribData(targetMoment){
 	function runQuery(targetMoment){
 
         // only go 2 weeks deep
-		if (moment.utc().diff(targetMoment, 'days') > 30){
+		if (moment.utc().diff(targetMoment, 'days') > 10){
 	        console.log('hit limit, harvest complete or there is a big gap in data..');
             return;
         }
 
-		var stamp = moment(targetMoment).format('YYYYMMDD') + roundHours(moment(targetMoment).hour(), 6);
+		var stamp = moment(targetMoment).format('YYYYMMDD') + '/' + roundHours(moment(targetMoment).hour(), 6) + '/atmos';
 		request.get({
 			url: baseDir,
 			qs: {
@@ -186,7 +191,7 @@ function getGribData(targetMoment){
 					console.log('piping ' + stamp);
 
 					// mk sure we've got somewhere to put output
-					checkPath('grib-data', true);
+					checkPath('grib-data/' + stamp, true);
 
 					// pipe the file, resolve the valid time stamp
 					var file = fs.createWriteStream("grib-data/"+stamp+".f000");
@@ -213,11 +218,11 @@ function getGribData(targetMoment){
 function convertGribToJson(stamp, targetMoment){
 
 	// mk sure we've got somewhere to put output
-	checkPath('json-data', true);
+	checkPath('json-data/' + stamp, true);
 
 	var exec = require('child_process').exec, child;
 
-	child = exec('converter/bin/grib2json --data --output json-data/'+stamp+'.json --names --compact grib-data/'+stamp+'.f000',
+	child = exec('"converter/bin/grib2json" --data --output json-data/'+stamp+'.json --names --compact grib-data/'+stamp+'.f000',
 		{maxBuffer: 500*1024},
 		function (error, stdout, stderr){
 
@@ -233,7 +238,7 @@ function convertGribToJson(stamp, targetMoment){
 
 				// if we don't have older stamp, try and harvest one
 				var prevMoment = moment(targetMoment).subtract(6, 'hours');
-				var prevStamp = prevMoment.format('YYYYMMDD') + roundHours(prevMoment.hour(), 6);
+				var prevStamp = prevMoment.format('YYYYMMDD') + '/' + roundHours(prevMoment.hour(), 6) + '/atmos';
 
 				if(!checkPath('json-data/'+ prevStamp +'.json', false)){
 
@@ -278,7 +283,7 @@ function checkPath(path, mkdir) {
 
     } catch(e) {
         if(mkdir){
-	        fs.mkdirSync(path);
+	        fs.mkdirSync(path, { recursive: true });
         }
 	    return false;
     }
